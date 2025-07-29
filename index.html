@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Panda Pause - Stopwatch</title>
+  <link rel="icon" type="image/png" href="./timer.png" />
+  <link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon1.png">
+<link rel="apple-touch-icon" href="icons/icon1.png">
+<link rel="icon" href="icons/icon1.png" type="image/png">
+<meta name="theme-color" content="#007bff">
+<meta name="mobile-web-app-capable" content="yes">
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    :root {
+      --text-light: #000;
+      --text-dark: #fff;
+      --card-bg-light: #ffffffee;
+      --card-bg-dark: #2b2b2bee;
+      --btn-light: #007bff;
+      --btn-dark: #00c6ff;
+    }
+
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: url('./panda1.png') center center/cover no-repeat fixed;
+      color: var(--text-light);
+      transition: all 0.3s ease;
+    }
+
+    .dark-mode {
+      background: #1f2937 url('./panda.png') center center/cover no-repeat fixed;
+      color: var(--text-dark);
+    }
+
+    .header {
+      position: sticky;
+      top: 0;
+      background-color: var(--card-bg-light);
+      z-index: 999;
+      padding: 10px 0;
+      text-align: center;
+    }
+
+    .dark-mode .header {
+      background-color: var(--card-bg-dark);
+    }
+
+    h1 {
+      font-size: 32px;
+      margin: 0;
+    }
+
+    .stopwatch {
+      background: var(--card-bg-light);
+      margin: 30px auto;
+      max-width: 600px;
+      padding: 30px;
+      border-radius: 15px;
+      box-shadow: 0 12px 25px rgba(0, 0, 0, 0.2);
+      text-align: center;
+      transition: all 0.3s ease;
+    }
+
+    .dark-mode .stopwatch {
+      background: var(--card-bg-dark);
+    }
+
+    .time {
+      font-size: 60px;
+      margin-bottom: 20px;
+    }
+
+    .controls button,
+    .theme-toggle,
+    .mode-toggle {
+      padding: 10px 18px;
+      margin: 6px;
+      font-size: 15px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      background-color: var(--btn-light);
+      color: white;
+      transition: all 0.3s ease;
+    }
+
+    .dark-mode .controls button,
+    .dark-mode .theme-toggle,
+    .dark-mode .mode-toggle {
+      background-color: var(--btn-dark);
+    }
+
+    .sound-toggle-floating {
+      position: fixed;
+      top: 15px;
+      right: 20px;
+      font-size: 24px;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      z-index: 9999;
+      color: var(--text-light);
+    }
+
+    .dark-mode .sound-toggle-floating {
+      color: var(--text-dark);
+    }
+
+    .laps,
+    .quote {
+      margin-top: 20px;
+      text-align: left;
+    }
+
+    .quote {
+      font-style: italic;
+      margin-top: 10px;
+    }
+
+    canvas {
+      margin-top: 20px;
+      background: white;
+      border-radius: 10px;
+      max-width: 100%;
+    }
+
+    @media (max-width: 600px) {
+      .time {
+        font-size: 36px;
+      }
+
+      .controls button {
+        padding: 8px 12px;
+        font-size: 13px;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+
+      .stopwatch {
+        padding: 20px;
+        margin: 10px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Panda Pause ⏱️</h1>
+  </div>
+
+  <!-- Sound Toggle Button (Floating in corner) -->
+  <button class="sound-toggle-floating" id="soundToggle">🔊</button>
+
+  <div class="stopwatch">
+    <div class="time" id="display">00:00:00</div>
+    <div class="controls">
+      <button id="start">Start</button>
+      <button id="pause">Pause</button>
+      <button id="reset">Reset</button>
+      <button id="lap">Lap/Split</button>
+      <button class="mode-toggle" id="toggleMode">Mode: Lap</button>
+      <button class="theme-toggle" id="themeToggle">🌙</button>
+    </div>
+
+    <div class="quote" id="quote">"Every second is a chance to level up."</div>
+    <div class="laps" id="laps">
+      <h3>Lap Times</h3>
+      <ul></ul>
+    </div>
+    <canvas id="lapChart" width="300" height="150"></canvas>
+  </div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      const clickSound = new Audio('./click.mp3');
+      const display = document.getElementById('display');
+      const lapsList = document.getElementById('laps').querySelector('ul');
+      const quoteEl = document.getElementById('quote');
+      const chartCtx = document.getElementById('lapChart').getContext('2d');
+      const modeToggle = document.getElementById('toggleMode');
+      const soundToggle = document.getElementById('soundToggle');
+
+      let startTime = 0,
+        elapsedTime = 0,
+        timerInterval,
+        isRunning = false,
+        laps = [],
+        lastLapTime = 0,
+        lapMode = true,
+        soundEnabled = localStorage.getItem('soundEnabled');
+
+      if (soundEnabled === null) {
+        soundEnabled = true;
+        localStorage.setItem('soundEnabled', 'true');
+      } else {
+        soundEnabled = soundEnabled === 'true';
+      }
+
+      soundToggle.textContent = soundEnabled ? '🔊' : '🔈';
+      soundToggle.onclick = () => {
+        soundEnabled = !soundEnabled;
+        localStorage.setItem('soundEnabled', soundEnabled.toString());
+        soundToggle.textContent = soundEnabled ? '🔊' : '🔈';
+      };
+
+      function playSound() {
+        if (soundEnabled) {
+          clickSound.currentTime = 0;
+          clickSound.play();
+        }
+      }
+
+      const quotes = [
+        "You're faster than you think!",
+        "Just one more lap!",
+        "Time flies. You’re the pilot!",
+        "Every second counts — make it count.",
+        "Consistency is the key to success!",
+        "You don’t have to be perfect, just consistent.",
+        "Push yourself, because no one else is going to do it for you."
+      ];
+
+      let chart = new Chart(chartCtx, {
+        type: 'bar',
+        data: {
+          labels: [],
+          datasets: [{
+            label: 'Lap Duration (s)',
+            data: [],
+            backgroundColor: '#007bff'
+          }]
+        },
+        options: {
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+
+      function formatTime(ms) {
+        const totalSeconds = Math.floor(ms / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        const milliseconds = Math.floor((ms % 1000) / 10);
+        return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}:${String(milliseconds).padStart(2, '0')}`;
+      }
+
+      function updateTime() {
+        elapsedTime = Date.now() - startTime;
+        display.textContent = formatTime(elapsedTime);
+      }
+
+      document.getElementById('start').onclick = () => {
+        playSound();
+        if (!isRunning) {
+          isRunning = true;
+          startTime = Date.now() - elapsedTime;
+          timerInterval = setInterval(updateTime, 10);
+          quoteEl.textContent = quotes[Math.floor(Math.random() * quotes.length)];
+        }
+      };
+
+      document.getElementById('pause').onclick = () => {
+        playSound();
+        if (isRunning) {
+          isRunning = false;
+          clearInterval(timerInterval);
+        }
+      };
+
+      document.getElementById('reset').onclick = () => {
+        playSound();
+        isRunning = false;
+        clearInterval(timerInterval);
+        startTime = 0;
+        elapsedTime = 0;
+        display.textContent = '00:00:00';
+        laps = [];
+        lastLapTime = 0;
+        lapsList.innerHTML = '';
+        chart.data.labels = [];
+        chart.data.datasets[0].data = [];
+        chart.update();
+      };
+
+      document.getElementById('lap').onclick = () => {
+        playSound();
+        if (isRunning) {
+          const now = Date.now();
+          const lapTime = now - startTime;
+          const split = lapTime - lastLapTime;
+          const displayTime = lapMode ? lapTime : split;
+          lastLapTime = lapTime;
+          laps.push(displayTime);
+
+          const li = document.createElement('li');
+          li.textContent = `${lapMode ? 'Lap' : 'Split'} ${laps.length}: ${formatTime(displayTime)}`;
+          lapsList.appendChild(li);
+
+          chart.data.labels.push(`${lapMode ? 'Lap' : 'Split'} ${laps.length}`);
+          chart.data.datasets[0].data.push((displayTime / 1000).toFixed(2));
+          chart.update();
+        }
+      };
+
+      modeToggle.onclick = () => {
+        playSound();
+        lapMode = !lapMode;
+        modeToggle.textContent = `Mode: ${lapMode ? 'Lap' : 'Split'}`;
+      };
+
+      document.getElementById('themeToggle').onclick = () => {
+        playSound();
+        document.body.classList.toggle('dark-mode');
+        const icon = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
+        document.getElementById('themeToggle').textContent = icon;
+      };
+
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('service-worker.js')
+          .then(reg => console.log("✅ Service Worker Registered"))
+          .catch(err => console.error("❌ Service Worker Failed:", err));
+      }
+    });
+  </script>
+</body>
+</html>
+
+
+
+
+
+
+
